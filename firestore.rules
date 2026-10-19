@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isGoogleUser() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    function isAdmin() {
+      return isGoogleUser()
+        && request.auth.token.email == 'admin@example.com';
+    }
+
+    match /responses/{responseId} {
+      allow read: if isSignedIn()
+        && (isAdmin() || resource.data.uid == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'email',
+          'openingThought',
+          'question',
+          'answer',
+          'sharedWithAdmin',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'openingThought',
+          'question',
+          'answer',
+          'sharedWithAdmin',
+          'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && (
+          (request.auth.token.firebase.sign_in_provider == 'anonymous'
+            && request.resource.data.email == '')
+          || (isGoogleUser()
+            && request.resource.data.email == request.auth.token.email)
+        )
+        && request.resource.data.sharedWithAdmin == true
+        && request.resource.data.openingThought is string
+        && request.resource.data.openingThought.size() <= 1200
+        && request.resource.data.question is string
+        && request.resource.data.question.size() <= 320
+        && request.resource.data.answer is string
+        && request.resource.data.answer.size() <= 1500
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+  }
+}
