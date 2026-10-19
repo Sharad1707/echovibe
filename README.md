@@ -34,9 +34,19 @@ The API key stays server-side and is never exposed to the browser. The separate 
 
 If the AI service is temporarily unavailable after consent, the answer is still saved in Firestore and the app reports that it used the local follow-up instead. Before making this endpoint available on a public deployment, add rate limiting and abuse controls to protect the Gemini API quota.
 
+## Email completed reflections
+
+When email delivery is configured, participants are told that their completed opening thought and six answers will be emailed to `sharadkasralikar1772@gmail.com`. Their opening thought and each answer still require explicit consent before they are saved; the final email is sent only after the sixth answer has been saved. If delivery fails, the participant can retry from the reflection screen.
+
+1. Create a [Resend](https://resend.com/) account and API key, and verify a sender domain/address that Resend allows you to use.
+2. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` in `.env.local` and in the Vercel project’s Environment Variables for the deployments you use.
+3. Keep Firebase configured, enable Anonymous sign-in, and redeploy. The mail endpoint validates each Firebase ID token server-side; without Firebase or the Resend settings, automatic email is unavailable.
+4. Restart locally or redeploy Vercel. The Resend key stays server-side. Email is sent only to the fixed recipient address above; participants cannot choose another recipient.
+
 ## Privacy and reflection
 
 - The opening thought and each answer are saved to Firestore only after the participant agrees to share them with the designated admin.
+- After a participant explicitly agrees to share their responses and submits all six answers, the completed reflection is emailed to `sharadkasralikar1772@gmail.com` when email notifications are configured.
 - Submitted thoughts, questions, answers, and timestamps are stored in Firestore with the signed-in user's UID and Google email.
 - The opening thought, submitted answer, and current question are sent to Google Gemini only when the separate AI-consent box is checked.
 - Drafts, keystrokes, pauses, and click activity are not collected.

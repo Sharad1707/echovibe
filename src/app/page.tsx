@@ -30,6 +30,7 @@ type Theme = {
 
 const questionCount = 6;
 const adminEmail = process.env.NEXT_PUBLIC_FIREBASE_ADMIN_EMAIL?.trim().toLowerCase() || "";
+const responseEmail = "sharadkasralikar1772@gmail.com";
 
 const questionOptions = [
   [
@@ -145,6 +146,9 @@ export default function Home() {
   const [consented, setConsented] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
   const [aiConsented, setAiConsented] = useState(false);
+  const [emailAvailable, setEmailAvailable] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<"not-configured" | "not-sent" | "sending" | "sent" | "failed">("not-configured");
+  const [emailError, setEmailError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedAnswers, setSavedAnswers] = useState<SharedAnswer[]>([]);
@@ -196,6 +200,24 @@ export default function Home() {
       })
       .catch((error: unknown) => {
         console.error("Could not check whether Gemini follow-ups are configured.", error);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/email-response", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Email availability check failed with status ${response.status}.`);
+        const result = (await response.json()) as { available?: unknown };
+        if (!active || typeof result.available !== "boolean") return;
+        setEmailAvailable(result.available);
+        setEmailStatus(result.available ? "not-sent" : "not-configured");
+      })
+      .catch((error: unknown) => {
+        console.error("Could not check whether email notifications are configured.", error);
       });
     return () => {
       active = false;
@@ -265,6 +287,46 @@ export default function Home() {
     };
   }
 
+  async function emailCompletedResponses(completedResponses: SharedAnswer[]) {
+    if (!user) throw new Error("Your session is not ready to send the completed responses.");
+    const token = await user.getIdToken();
+    const response = await fetch("/api/email-response", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        consent: true,
+        responses: completedResponses.map(({ question, answer }) => ({ question, answer })),
+      }),
+    });
+    const result = (await response.json()) as { error?: unknown };
+    if (!response.ok) {
+      throw new Error(
+        typeof result.error === "string"
+          ? result.error
+          : "The completed responses could not be emailed.",
+      );
+    }
+  }
+
+  async function retryCompletionEmail() {
+    if (!emailAvailable || responses.length !== questionCount + 1 || emailStatus === "sending") return;
+    setEmailStatus("sending");
+    setEmailError("");
+    setNotice("");
+    try {
+      await emailCompletedResponses(responses);
+      setEmailStatus("sent");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The completed responses could not be emailed.";
+      setEmailStatus("failed");
+      setEmailError(message);
+      setNotice("Your reflection is ready. You can retry email delivery below.");
+    }
+  }
+
   function resetJourney() {
     setPhase("opening");
     setOpeningThought("");
@@ -275,6 +337,8 @@ export default function Home() {
     setAnswer("");
     setConsented(false);
     setAiConsented(false);
+    setEmailStatus(emailAvailable ? "not-sent" : "not-configured");
+    setEmailError("");
     setNotice("");
   }
 
@@ -353,15 +417,36 @@ export default function Home() {
       const saved = await storeResponse(question.text, submittedAnswer);
       const updatedResponses = [...responses, saved];
       setResponses(updatedResponses);
+      let completionNotice = "";
+      if (nextIndex >= questionCount) {
+        if (emailAvailable) {
+          setEmailStatus("sending");
+          setEmailError("");
+          setNotice("Your responses are saved. Sending the completed reflection by email…");
+          try {
+            await emailCompletedResponses(updatedResponses);
+            setEmailStatus("sent");
+            completionNotice = "Your last answer was saved.";
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "The completed responses could not be emailed.";
+            setEmailStatus("failed");
+            setEmailError(message);
+            completionNotice = "Your reflection is ready. You can retry email delivery below.";
+          }
+        } else {
+          setEmailStatus("not-configured");
+          completionNotice = "Your last answer was saved.";
+        }
+      }
       setAnswer("");
       setSelectedOption("");
       setConsented(false);
       setAiConsented(false);
-      setNotice(aiFallbackNotice || (aiConsented && aiAvailable
-        ? "Your answer was saved. Your AI-generated follow-up is ready."
-        : isFirebaseConfigured
-          ? "Your answer was saved to Firebase. Thanks for sharing."
-          : "Your answer was saved only in this browser. Thanks for sharing."));
+      setNotice(completionNotice || aiFallbackNotice || (aiConsented && aiAvailable
+          ? "Your answer was saved. Your AI-generated follow-up is ready."
+          : isFirebaseConfigured
+            ? "Your answer was saved to Firebase. Thanks for sharing."
+            : "Your answer was saved only in this browser. Thanks for sharing."));
       if (nextIndex >= questionCount) {
         setPhase("report");
       } else {
@@ -453,7 +538,8 @@ export default function Home() {
             <div className="promise">
               <span className="promise-icon" aria-hidden="true">♡</span>
               <p><strong>Your words stay yours.</strong><br />
-                Submitted responses are stored in Firestore only after consent and are visible to the designated admin account.</p>
+                Submitted responses are stored in Firestore only after consent and are visible to the designated admin account.
+                {emailAvailable && ` Your completed responses are also emailed to ${responseEmail}.`}</p>
             </div>
           ) : !isFirebaseConfigured ? (
             <div className="promise">
@@ -591,8 +677,10 @@ export default function Home() {
                   <input checked={consented} onChange={(event) => setConsented(event.target.checked)} required type="checkbox" />
                   <span>
                     {isFirebaseConfigured
-                      ? `I agree to save this thought and my submitted answers in Firebase, where the admin${adminEmail ? ` (${adminEmail})` : " account configured by the app owner"} can view them.`
-                      : "I agree to save this thought and my submitted answers only in this browser."}
+                      ? emailAvailable
+                        ? `I agree to save this thought and my answers in Firebase, where the admin${adminEmail ? ` (${adminEmail})` : " account configured by the app owner"} can view them, and email the completed responses to ${responseEmail}.`
+                        : `I agree to save this thought and my submitted answers in Firebase, where the admin${adminEmail ? ` (${adminEmail})` : " account configured by the app owner"} can view them. Email notifications are not configured.`
+                      : "I agree to save this thought and my submitted answers only in this browser. Email notifications are not available in local-only mode."}
                   </span>
                 </label>
                 <button className="submit-button" disabled={!openingThought.trim() || !consented || saving} type="submit">
@@ -660,7 +748,9 @@ export default function Home() {
                   <input checked={consented} onChange={(event) => setConsented(event.target.checked)} required type="checkbox" />
                   <span>
                     {isFirebaseConfigured
-                      ? `I agree to save this answer in Firebase, where the admin${adminEmail ? ` (${adminEmail})` : " account configured by the app owner"} can view it.`
+                      ? emailAvailable
+                        ? `I agree to save this answer in Firebase and include it with all my responses in an email to ${responseEmail} when I finish.`
+                        : `I agree to save this answer in Firebase, where the admin${adminEmail ? ` (${adminEmail})` : " account configured by the app owner"} can view it.`
                       : "I agree to save this answer only in this browser."}
                   </span>
                 </label>
@@ -717,6 +807,23 @@ export default function Home() {
               <p className="reflection-disclaimer">
                 Themes are simple matches to words in your answers. This is not a relationship score, diagnosis, or a conclusion about anyone else.
               </p>
+              {emailStatus === "sent" && (
+                <p className="notice" role="status">Your completed responses were emailed to {responseEmail}.</p>
+              )}
+              {emailStatus === "not-configured" && (
+                <p className="notice" role="status">
+                  Email notifications are not configured. Your answers were saved according to the consent you gave.
+                </p>
+              )}
+              {emailStatus === "failed" && (
+                <>
+                  <p className="notice" role="alert">{emailError}</p>
+                  <button className="submit-button" onClick={() => void retryCompletionEmail()} type="button">
+                    Retry email
+                  </button>
+                </>
+              )}
+              {emailStatus === "sending" && <p className="notice" role="status">Sending your completed responses…</p>}
               <p aria-live="polite" className="notice">{notice}</p>
               <button className="submit-button" onClick={resetJourney} type="button">Start a new reflection</button>
               <div className="card-footer"><span>Only you decide what feels true.</span></div>
