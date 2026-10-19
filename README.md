@@ -16,8 +16,8 @@ Open [http://localhost:3000](http://localhost:3000).
 1. Create a Firebase project and register a Web app.
 2. In Firebase Authentication, enable both the **Anonymous** and **Google** providers and add `localhost` (and your deployed domain) to Authorized domains.
 3. Create a Cloud Firestore database.
-4. Copy `.env.example` to `.env.local`. Add the Firebase Web app values and your own Google account email as `NEXT_PUBLIC_FIREBASE_ADMIN_EMAIL`.
-5. In `firestore.rules`, replace `admin@example.com` with that exact admin email. Install and authenticate the Firebase CLI, select your project, then deploy these rules with `firebase deploy --only firestore:rules`.
+4. Copy `.env.example` to `.env.local`. Add the Firebase Web app values. The admin email is set to `sharadkasralikar1772@gmail.com`; change it only if you also update the matching email in `firestore.rules`.
+5. Install and authenticate the Firebase CLI, select your project, then deploy these rules with `firebase deploy --only firestore:rules`.
 6. Restart the Next.js app.
 
 Participants start without a sign-in screen and use Firebase anonymous authentication in the background. Google sign-in is only needed to open the admin dashboard. The opening thought and every submitted answer are saved in Firestore only after the participant explicitly agrees that the designated admin account can view them. Participants can read only their own response documents; the exact admin Google email configured in `firestore.rules` can read all submitted responses. Firestore rules prohibit edits and deletes from the client. Do not launch publicly until you have replaced the example admin email and deployed the rules.
